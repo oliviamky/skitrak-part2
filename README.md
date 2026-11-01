@@ -1,77 +1,97 @@
-# CS6650 Assignment 1 — SkiTrak
+# SkiTrak — Distributed Ski Lift Event Processing (Part 2)
 
-## Project Overview
+SkiTrak is a Java-based distributed systems project that ingests simulated ski-lift ride events and delivers live leaderboard updates. **Part 2 builds on the HTTP ingestion and WebSocket delivery implemented in Part 1**, with a focus on decoupling event intake from downstream processing through asynchronous messaging.
 
-SkiTrak is a Java-based client-server system developed for CS6650 Distributed Systems Assignment 1. The project simulates ski lift swipe events, sends concurrent HTTP POST requests to a server deployed on AWS EC2, and receives synthetic leaderboard updates through persistent WebSocket connections.
+> **Project status:** Part 1 code is the starting point for this repository. Part 2 components are under development; the architecture and performance goals below should not be interpreted as completed or benchmarked features.
 
-The main objective is to evaluate HTTP ingest throughput, request latency, concurrency, and WebSocket push latency under different client thread configurations.
+## Goals
+
+- Accept ski-lift events through an HTTP API.
+- Introduce a queue between event ingestion and event processing.
+- Process events with consumer workers independently of incoming HTTP requests.
+- Explore throughput, queue depth, consumer lag, failure handling, and event loss under load.
+- Maintain real-time leaderboard delivery through WebSocket connections as the system evolves.
+
+## Architecture
+
+### Part 1 baseline
+
+```text
+Multithreaded Load Generator
+          |
+          | HTTP POST 
+          v
+Java Servlet (Tomcat)
+          |
+          v
+In-memory event handling / leaderboard
+          |
+          v
+WebSocket /leaderboard/{resortID}
+          |
+          v
+Leaderboard Subscribers
+```
+
+### Part 2 target design (work in progress)
+
+```text
+Multithreaded Load Generator
+          |
+          | HTTP POST
+          v
+HTTP Ingestion Service
+          |
+          v
+      Message Queue
+          |
+          v
+    Consumer Worker(s)
+          |
+          v
+  Event Processing / State
+          |
+          v
+  Leaderboard Updates
+          |
+          v
+ WebSocket Subscribers
+```
+
+The queue and consumer implementation, deployment configuration, and failure-handling behavior will be documented once implemented and tested.
+
+## Technology Stack
+
+- **Language:** Java
+- **Web server:** Apache Tomcat 9 / Java Servlets
+- **Real-time delivery:** WebSocket
+- **Load testing:** Multithreaded Java client
+- **Deployment (Part 1 baseline):** AWS EC2
+- **Build:** Maven (if using the original Part 1 Maven project)
+- **Messaging:** To be specified after Part 2 implementation
+
+## Event Workload
+
+The Part 1 load generator simulates ski-lift rides with fields such as resort ID, skier ID, lift ID, season, day, and time. The baseline workload contains **500,000 generated events** across a warm-up phase and a main test phase.
+
+## Performance Evaluation
+
+Part 2 will be evaluated using the following measurements:
+
+| Metric | What it measures | Working target |
+| --- | --- | --- |
+| HTTP throughput | Requests accepted per second | Measure under different client concurrency levels |
+| HTTP latency | Mean, p50, p95, and p99 response times | Report observed values |
+| Queue depth | Events waiting to be consumed | Below 1,000 during steady-state testing |
+| Consumer lag | Delay between event arrival and processing | Below 100 ms |
+| Event loss | Accepted events not successfully processed | Zero |
+| WebSocket delivery | Update latency and connection stability | Measure and report |
+
+## Repository Organization
+
+This repository starts from the Part 1 implementation. Refer to the actual source tree for module paths. This section will be updated when the Part 2 producer, queue, and consumer modules are finalized.
 
 ## Running the Project
-### 1. Deploy the Server
 
-Build the WAR file
-```bash
-cd Server
-mvn clean package
-```
+Setup instructions are being updated for Part 2. The existing Part 1 components use a Java/Tomcat environment. Before running the full distributed pipeline, configure the chosen messaging system and consumer processes, then document startup commands and required environment variables here.
 
-Upload the WAR file to EC2
-```bash
-scp -i <PEM_KEY_PATH> \
-target/ski-servlet-1.0-SNAPSHOT.war \
-ec2-user@<EC2_PUBLIC_IP>:/tmp/
-```
-Replace <PEM_KEY_PATH> with key path & <EC2_PUBLIC_IP> with EC2 public IP
-
-Connect to the EC2 instance
-```bash
-ssh -i <PEM_KEY_PATH> ec2-user@<EC2_PUBLIC_IP>
-```
-
-Deploy the WAR file to Tomcat
-Copy the uploaded WAR file into Tomcat's deployment directory, renaming it to ski-servlet.war:
-
-```bash
-sudo cp /tmp/ski-servlet-1.0-SNAPSHOT.war \
-<TOMCAT_WEBAPPS_DIRECTORY>/ski-servlet.war
-```
-
-Deploy the generated WAR file to Apache Tomcat 9.
-
-The expected application context is `/ski-servlet`.
-
-Verify that the server is running:
-
-```bash
-curl http://<SERVER_IP>:8080/ski-servlet/health
-```
-Run the following commands in the Mac Terminal before executing Client Part 1 or Part 2
-
-To ensure that clock synchronization completes successfully before running the benchmark
-```bash
-sudo sntp -sS time.apple.com
-sntp time.apple.com
-```
-### 2. Run Client Part 1
-
-Part 1 runs the multithreaded HTTP ingest workload and reports basic performance statistics.
-
-```bash
-cd ../client-part1
-mvn clean compile
-mvn exec:java -Dexec.mainClass=IngestPath -Dexec.args="<SERVER_IP> 300"
-```
-
-### 3. Run Client Part 2
-
-Part 2 extends the client with detailed HTTP latency measurements, per-resort throughput, WebSocket push latency, and CSV exports.
-
-```bash
-cd ../client-part2
-mvn clean compile
-mvn exec:java -Dexec.mainClass=IngestPath -Dexec.args="<SERVER_IP> 300"
-```
-
-Replace `<SERVER_IP>` with the public IP address of the running EC2 instance.
-
-The first argument specifies the server IP address, and the optional second argument specifies the number of sender threads for the main phase. The default is 300 threads. The selected thread count must divide 468,000 evenly.
